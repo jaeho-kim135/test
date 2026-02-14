@@ -6,4 +6,9 @@
             ProviderClass="org.knime.bigdata.spark3_5.dx.jobs.preproc.unpivot.UnpivotJobRunFactoryProvider">
       </JobRunFactoryProvider>
    </extension>
+   <extension point="org.knime.bigdata.spark.core.SparkJarProvider">
+      <SparkJarProvider
+            ProviderClass="org.knime.bigdata.spark3_5.dx.jobs.preproc.unpivot.DxSpark35JarProvider">
+      </SparkJarProvider>
+   </extension>
 </plugin>
