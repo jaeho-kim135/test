@@ -1,9 +1,7 @@
 package org.knime.bigdata.spark3_4.dx.jobs.preproc.unpivot;
 
-import java.util.ArrayList;
-import java.util.List;
-
 import org.apache.spark.SparkContext;
+import org.apache.spark.sql.Column;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
 import org.knime.bigdata.spark.core.exception.KNIMESparkException;
@@ -18,10 +16,11 @@ import org.knime.bigdata.spark3_4.api.TypeConverters;
 import static org.apache.spark.sql.functions.col;
 
 /**
- * Spark job that performs the unpivot (melt) operation using stack().
+ * Spark job that performs the unpivot (melt) operation using the DataFrame unpivot() API.
  *
+ * <p>Transforms wide format to long format:
  * <pre>
- * stack(N, 'col1', `col1`, 'col2', `col2`, ...) as (`variable`, `value`)
+ * | ID | Q1 | Q2 | Q3 |  →  | ID | variable | value |
  * </pre>
  */
 @SparkClass
@@ -47,25 +46,19 @@ public class UnpivotJob implements SparkJob<SparkUnpivotJobInput, SparkUnpivotJo
             throw new KNIMESparkException("No value columns specified for unpivoting.");
         }
 
-        // Build the stack() expression:
-        // stack(N, 'col1', `col1`, 'col2', `col2`, ...) as (`variable`, `value`)
-        final StringBuilder stackExpr = new StringBuilder();
-        stackExpr.append("stack(").append(valueColumns.length);
-        for (String colName : valueColumns) {
-            stackExpr.append(", '").append(escapeQuote(colName)).append("', `")
-                     .append(escapeBacktick(colName)).append('`');
+        // Build Column arrays for the unpivot() API
+        final Column[] idCols = new Column[retainedColumns.length];
+        for (int i = 0; i < retainedColumns.length; i++) {
+            idCols[i] = col(retainedColumns[i]);
         }
-        stackExpr.append(") as (`").append(escapeBacktick(variableColName))
-                 .append("`, `").append(escapeBacktick(valueColName)).append("`)");
 
-        // Build select expressions: retained columns + stack expression
-        final List<String> selectExprs = new ArrayList<>(retainedColumns.length + 1);
-        for (String col : retainedColumns) {
-            selectExprs.add("`" + escapeBacktick(col) + "`");
+        final Column[] valCols = new Column[valueColumns.length];
+        for (int i = 0; i < valueColumns.length; i++) {
+            valCols[i] = col(valueColumns[i]);
         }
-        selectExprs.add(stackExpr.toString());
 
-        Dataset<Row> result = inputFrame.selectExpr(selectExprs.toArray(new String[0]));
+        // Perform unpivot using DataFrame API (available since Spark 3.4)
+        Dataset<Row> result = inputFrame.unpivot(idCols, valCols, variableColName, valueColName);
 
         // Filter out null values if requested
         if (skipMissing) {
@@ -75,13 +68,5 @@ public class UnpivotJob implements SparkJob<SparkUnpivotJobInput, SparkUnpivotJo
         namedObjects.addDataFrame(namedOutputObject, result);
         final IntermediateSpec outputSchema = TypeConverters.convertSpec(result.schema());
         return new SparkUnpivotJobOutput(namedOutputObject, outputSchema);
-    }
-
-    private static String escapeQuote(final String s) {
-        return s.replace("'", "\\'");
-    }
-
-    private static String escapeBacktick(final String s) {
-        return s.replace("`", "``");
     }
 }
