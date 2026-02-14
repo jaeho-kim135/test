@@ -8,6 +8,8 @@ import java.awt.Insets;
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
 
+import org.knime.bigdata.spark.core.port.data.SparkDataPortObjectSpec;
+import org.knime.core.data.DataTableSpec;
 import org.knime.core.node.InvalidSettingsException;
 import org.knime.core.node.NodeDialogPane;
 import org.knime.core.node.NodeSettingsRO;
@@ -97,8 +99,17 @@ public final class SparkUnpivotNodeDialog extends NodeDialogPane {
     @Override
     protected void loadSettingsFrom(final NodeSettingsRO settings, final PortObjectSpec[] specs)
             throws NotConfigurableException {
-        m_retainedColFilter.loadSettingsFrom(settings, specs);
-        m_valueColFilter.loadSettingsFrom(settings, specs);
+        if (specs == null || specs.length < 1 || specs[0] == null) {
+            throw new NotConfigurableException("No input connection found.");
+        }
+
+        // Extract DataTableSpec from SparkDataPortObjectSpec
+        final SparkDataPortObjectSpec sparkSpec = (SparkDataPortObjectSpec) specs[0];
+        final DataTableSpec tableSpec = sparkSpec.getTableSpec();
+        final DataTableSpec[] tableSpecs = new DataTableSpec[]{tableSpec};
+
+        m_retainedColFilter.loadSettingsFrom(settings, tableSpecs);
+        m_valueColFilter.loadSettingsFrom(settings, tableSpecs);
         try {
             m_variableColName.loadSettingsFrom(settings);
         } catch (final InvalidSettingsException e) {
