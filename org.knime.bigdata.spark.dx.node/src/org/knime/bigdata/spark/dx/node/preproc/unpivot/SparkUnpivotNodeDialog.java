@@ -4,6 +4,9 @@ import java.awt.BorderLayout;
 import java.awt.GridBagConstraints;
 import java.awt.GridBagLayout;
 import java.awt.Insets;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Set;
 
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
@@ -129,10 +132,51 @@ public final class SparkUnpivotNodeDialog extends NodeDialogPane {
 
     @Override
     protected void saveSettingsTo(final NodeSettingsWO settings) throws InvalidSettingsException {
+        // Validate before saving
+        validateSettings();
+
         m_retainedColFilter.saveSettingsTo(settings);
         m_valueColFilter.saveSettingsTo(settings);
         m_variableColName.saveSettingsTo(settings);
         m_valueColName.saveSettingsTo(settings);
         m_skipMissingValues.saveSettingsTo(settings);
+    }
+
+    private void validateSettings() throws InvalidSettingsException {
+        final List<String> retainedCols = m_retainedColumns.getIncludeList();
+        final List<String> valueCols = m_valueColumns.getIncludeList();
+
+        // Check retained columns
+        if (retainedCols == null || retainedCols.isEmpty()) {
+            throw new InvalidSettingsException("No retained columns selected. "
+                + "Please select at least one retained (ID) column.");
+        }
+
+        // Check value columns
+        if (valueCols == null || valueCols.isEmpty()) {
+            throw new InvalidSettingsException("No value columns selected. "
+                + "Please select at least one value column to unpivot.");
+        }
+
+        // Check overlap between retained and value columns
+        final Set<String> overlap = new HashSet<>(retainedCols);
+        overlap.retainAll(valueCols);
+        if (!overlap.isEmpty()) {
+            throw new InvalidSettingsException("The following columns are selected as both "
+                + "retained and value columns: " + overlap
+                + ". A column cannot be in both lists.");
+        }
+
+        // Check variable column name
+        final String varName = m_variableColName.getStringValue();
+        if (varName == null || varName.trim().isEmpty()) {
+            throw new InvalidSettingsException("Variable column name must not be empty.");
+        }
+
+        // Check value column name
+        final String valName = m_valueColName.getStringValue();
+        if (valName == null || valName.trim().isEmpty()) {
+            throw new InvalidSettingsException("Value column name must not be empty.");
+        }
     }
 }

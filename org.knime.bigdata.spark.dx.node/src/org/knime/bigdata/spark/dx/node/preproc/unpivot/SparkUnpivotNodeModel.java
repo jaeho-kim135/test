@@ -1,7 +1,9 @@
 package org.knime.bigdata.spark.dx.node.preproc.unpivot;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 import org.knime.bigdata.spark.core.context.SparkContextID;
 import org.knime.bigdata.spark.core.context.SparkContextUtil;
@@ -49,10 +51,24 @@ public class SparkUnpivotNodeModel extends SparkNodeModel {
         final SparkDataPortObjectSpec sparkSpec = (SparkDataPortObjectSpec) inSpecs[0];
         final DataTableSpec tableSpec = sparkSpec.getTableSpec();
 
+        // Validate retained columns
+        final List<String> retainedColumns = m_settings.getRetainedColumns();
+        if (retainedColumns == null || retainedColumns.isEmpty()) {
+            throw new InvalidSettingsException("No retained columns selected. "
+                + "Please select at least one retained (ID) column.");
+        }
+
+        for (String col : retainedColumns) {
+            if (tableSpec.findColumnIndex(col) == -1) {
+                throw new InvalidSettingsException("Retained column '" + col + "' not found in input table.");
+            }
+        }
+
         // Validate value columns
         final List<String> valueColumns = m_settings.getValueColumns();
         if (valueColumns == null || valueColumns.isEmpty()) {
-            throw new InvalidSettingsException("No value columns selected for unpivoting.");
+            throw new InvalidSettingsException("No value columns selected. "
+                + "Please select at least one value column to unpivot.");
         }
 
         for (String col : valueColumns) {
@@ -61,11 +77,13 @@ public class SparkUnpivotNodeModel extends SparkNodeModel {
             }
         }
 
-        // Validate retained columns
-        for (String col : m_settings.getRetainedColumns()) {
-            if (tableSpec.findColumnIndex(col) == -1) {
-                throw new InvalidSettingsException("Retained column '" + col + "' not found in input table.");
-            }
+        // Validate no overlap between retained and value columns
+        final Set<String> overlap = new HashSet<>(retainedColumns);
+        overlap.retainAll(valueColumns);
+        if (!overlap.isEmpty()) {
+            throw new InvalidSettingsException("The following columns are selected as both "
+                + "retained and value columns: " + overlap
+                + ". A column cannot be in both lists.");
         }
 
         // Validate output column names
