@@ -7,4 +7,10 @@
             ProviderClass="org.knime.bigdata.spark.dx.node.DxSparkNodeFactoryProvider">
       </SparkNodeFactoryProvider>
    </extension>
+   <extension
+         point="org.knime.bigdata.spark.core.SparkJarProvider">
+      <SparkJarProvider
+            ProviderClass="org.knime.bigdata.spark.dx.node.DxSparkJarProvider">
+      </SparkJarProvider>
+   </extension>
 </plugin>
