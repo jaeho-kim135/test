@@ -1,0 +1,67 @@
+<?xml version="1.0" encoding="utf-8"?>
+<knimeNode xmlns="http://knime.org/node/v3.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://knime.org/node/v3.1 http://knime.org/node/v3.1.xsd"
+    type="Manipulator">
+    <name>Spark Unpivot</name>
+    <shortDescription>
+        Transforms a Spark DataFrame/RDD from wide format to long format by converting
+        selected value columns into variable/value rows.
+    </shortDescription>
+    <fullDescription>
+        <intro>
+            <p>
+                This node performs an unpivot (melt) operation on a Spark DataFrame/RDD.
+                It transforms wide-format data into long-format data by converting selected
+                value columns into two new columns: a variable column (containing the original
+                column names) and a value column (containing the original cell values).
+            </p>
+            <p>
+                Retained columns (e.g. ID columns) are kept as-is and repeated for each
+                value column that is unpivoted.
+            </p>
+            <p>
+                For example, a table with columns [ID, Q1, Q2, Q3] where Q1-Q3 are value columns
+                would be transformed into [ID, variable, value] with one row per original value column.
+            </p>
+            <p>
+                The node uses Spark's <tt>stack()</tt> SQL function internally.
+            </p>
+        </intro>
+        <tab name="Retained Columns">
+            <option name="Retained columns">
+                Select the columns that should be retained (kept as-is) in the output.
+                These are typically ID or key columns. Retained columns will be repeated
+                for each unpivoted value column row.
+            </option>
+        </tab>
+        <tab name="Value Columns">
+            <option name="Value columns">
+                Select the columns that should be unpivoted (melted) into rows.
+                Each selected column will generate one row per input row in the output,
+                with the column name stored in the variable column and the cell value
+                stored in the value column.
+            </option>
+        </tab>
+        <tab name="Options">
+            <option name="Variable column name">
+                The name of the output column that will contain the original column names.
+                Default: "variable".
+            </option>
+            <option name="Value column name">
+                The name of the output column that will contain the original cell values.
+                Default: "value".
+            </option>
+            <option name="Skip missing values">
+                If checked, rows where the value is missing (null) will be omitted from the output.
+            </option>
+        </tab>
+    </fullDescription>
+    <ports>
+        <inPort index="0" name="Spark DataFrame/RDD">
+            Spark DataFrame/RDD to unpivot.
+        </inPort>
+        <outPort index="0" name="Spark DataFrame/RDD">
+            Spark DataFrame/RDD in long format with variable and value columns.
+        </outPort>
+    </ports>
+</knimeNode>
