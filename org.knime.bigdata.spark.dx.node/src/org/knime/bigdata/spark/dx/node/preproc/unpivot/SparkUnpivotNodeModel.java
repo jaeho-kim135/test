@@ -3,7 +3,6 @@ package org.knime.bigdata.spark.dx.node.preproc.unpivot;
 import java.util.ArrayList;
 import java.util.List;
 
-import org.apache.commons.lang3.StringUtils;
 import org.knime.bigdata.spark.core.context.SparkContextID;
 import org.knime.bigdata.spark.core.context.SparkContextUtil;
 import org.knime.bigdata.spark.core.node.SparkNodeModel;
@@ -70,11 +69,11 @@ public class SparkUnpivotNodeModel extends SparkNodeModel {
         }
 
         // Validate output column names
-        if (StringUtils.isBlank(m_settings.getVariableColName())) {
+        if (m_settings.getVariableColName() == null || m_settings.getVariableColName().trim().isEmpty()) {
             throw new InvalidSettingsException("Variable column name must not be empty.");
         }
 
-        if (StringUtils.isBlank(m_settings.getValueColName())) {
+        if (m_settings.getValueColName() == null || m_settings.getValueColName().trim().isEmpty()) {
             throw new InvalidSettingsException("Value column name must not be empty.");
         }
 

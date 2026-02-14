@@ -8,7 +8,6 @@ import java.awt.Insets;
 import javax.swing.BorderFactory;
 import javax.swing.JPanel;
 
-import org.knime.core.data.DataValue;
 import org.knime.core.node.InvalidSettingsException;
 import org.knime.core.node.NodeDialogPane;
 import org.knime.core.node.NodeSettingsRO;
@@ -42,15 +41,11 @@ public final class SparkUnpivotNodeDialog extends NodeDialogPane {
     private final SettingsModelBoolean m_skipMissingValues =
         new SettingsModelBoolean(SparkUnpivotSettings.CFG_SKIP_MISSING_VALUES, true);
 
-    @SuppressWarnings("unchecked")
     private final DialogComponentColumnFilter m_retainedColFilter =
-        new DialogComponentColumnFilter(m_retainedColumns, 0, false,
-            new org.knime.core.node.util.ColumnFilterPanel.ValueClassFilter(DataValue.class), false);
+        new DialogComponentColumnFilter(m_retainedColumns, 0, false);
 
-    @SuppressWarnings("unchecked")
     private final DialogComponentColumnFilter m_valueColFilter =
-        new DialogComponentColumnFilter(m_valueColumns, 0, false,
-            new org.knime.core.node.util.ColumnFilterPanel.ValueClassFilter(DataValue.class), false);
+        new DialogComponentColumnFilter(m_valueColumns, 0, false);
 
     private final DialogComponentString m_variableColNameComp =
         new DialogComponentString(m_variableColName, "Variable column name: ");
@@ -62,7 +57,6 @@ public final class SparkUnpivotNodeDialog extends NodeDialogPane {
         new DialogComponentBoolean(m_skipMissingValues, "Skip missing values");
 
     /** Constructor. */
-    @SuppressWarnings("unchecked")
     public SparkUnpivotNodeDialog() {
         m_retainedColFilter.setIncludeTitle(" Retained column(s) ");
         m_retainedColFilter.setExcludeTitle(" Available column(s) ");
