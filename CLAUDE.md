@@ -132,3 +132,380 @@ executeInternal()
 2. **입력 포트 차이**: GroupBy는 `[SparkDataPortObject]` 1개, Pivot는 `[SparkDataPortObject, BufferedDataTable(Optional)]` 2개
 3. **집계 함수 3단계**: Manual → Pattern → Type 순서로 적용, 앞 단계에서 선택된 컬럼은 뒷 단계에서 제외
 4. **출력 스펙 지연 결정**: auto/inputTable 모드에서는 configure 시 null 반환, execute 후 Spark 결과에서 스펙 획득
+
+---
+---
+
+# Spark Unpivot Node (신규 개발)
+
+## 개요
+
+Spark DataFrame을 wide format → long format으로 변환하는 Unpivot(Melt) 노드.
+Spark 3.4+ 의 `Dataset.unpivot()` API를 사용한다.
+기존 Pivot 노드와 달리 **독립적인 3개 플러그인**으로 구성.
+
+- **노드명**: Spark Unpivot(Hyim)
+- **최소 Spark 버전**: 3.4
+- **노드 타입**: Manipulator
+
+---
+
+## 플러그인 구조
+
+| 플러그인 | 역할 |
+|----------|------|
+| `org.knime.bigdata.spark.dx.node` | 노드 UI (Factory, Model, Dialog, Settings, JobInput/Output) |
+| `org.knime.bigdata.spark3_4.dx` | Spark 3.4용 Job 구현 |
+| `org.knime.bigdata.spark3_5.dx` | Spark 3.5용 Job 구현 |
+
+---
+
+## 클래스 구조
+
+### Node 레이어 (`org.knime.bigdata.spark.dx.node.preproc.unpivot`)
+
+| 파일 | 역할 |
+|------|------|
+| `SparkUnpivotNodeFactory.java` | `DefaultSparkNodeFactory<SparkUnpivotNodeModel>` 상속. 카테고리: "row" |
+| `SparkUnpivotNodeFactory.xml` | 노드 설명 (4탭: Retained Columns, Value Columns, Options, Validation) |
+| `SparkUnpivotNodeModel.java` | 노드 모델. configure에서 유효성 검증, execute에서 Spark Job 실행 |
+| `SparkUnpivotNodeDialog.java` | `DataAwareNodeDialogPane` 상속. 4탭 UI, 타입 표시, 행 수 추정, 변수 매핑, 정렬, Validation Check |
+| `SparkUnpivotSettings.java` | 설정 모델 (retainedColumns, valueColumns, variableColName, valueColName, skipMissingValues, castToString, sortOption, variableValueMap) |
+| `SparkUnpivotJobInput.java` | Job 입력 VO. `JobInput` 상속. validateOnly/sortOption/varMap 지원 |
+| `SparkUnpivotJobOutput.java` | Job 출력 VO. `JobOutput` 상속. previewData/inputRowCount 포함 |
+
+### Spark Job 레이어 (spark3_4 / spark3_5 동일 구조)
+
+| 파일 | 역할 |
+|------|------|
+| `UnpivotJob.java` | `SparkJob` 구현. `Dataset.unpivot()` 호출. castToString, 변수 매핑, 정렬, validateOnly 지원 |
+| `UnpivotJobRunFactory.java` | Job 실행 팩토리 |
+| `UnpivotJobRunFactoryProvider.java` | SPI 프로바이더 |
+
+---
+
+## 포트 구성
+
+| 포트 | 방향 | 타입 | 설명 |
+|------|------|------|------|
+| 0 | 입력 | `SparkDataPortObject` | unpivot 대상 Spark DataFrame |
+| 0 | 출력 | `SparkDataPortObject` | long format 결과 DataFrame |
+
+---
+
+## 설정 항목
+
+| Config Key | 타입 | 기본값 | 설명 |
+|------------|------|--------|------|
+| `retainedColumns` | FilterString | [] | 유지할 ID 컬럼 목록 |
+| `valueColumns` | FilterString | [] | unpivot 대상 값 컬럼 목록 |
+| `variableColName` | String | "variable" | 출력 variable 컬럼명 |
+| `valueColName` | String | "value" | 출력 value 컬럼명 |
+| `skipMissingValues` | Boolean | true | null 값 행 제외 여부 |
+| `castToString` | Boolean | false | 모든 value 컬럼을 String으로 캐스팅 |
+| `sortOption` | String | "none" | 출력 정렬 옵션 (none / retained / variable) |
+| `variableValueMap` | Map (keys+values 배열) | {} | variable 컬럼 값 커스텀 매핑 |
+
+---
+
+## 유효성 검증 (Dialog OK + NodeModel configure 양쪽)
+
+| 검증 | 에러 메시지 |
+|------|------------|
+| retained 컬럼 미선택 | "No retained columns selected." |
+| value 컬럼 미선택 | "No value columns selected." |
+| retained/value 중복 선택 | "The following columns are selected as both retained and value columns: ..." |
+| variable 컬럼명 빈값 | "Variable column name must not be empty." |
+| value 컬럼명 빈값 | "Value column name must not be empty." |
+| variable = value 컬럼명 동일 | "Variable column name and Value column name must be different." |
+| 출력 컬럼명이 retained 컬럼명과 충돌 | "Variable/Value column name '...' conflicts with a retained column name." |
+| 타입 혼합 (숫자+문자열) + cast OFF | "Value columns have incompatible types: ... Enable 'Cast all value columns to String' option." |
+
+---
+
+## 실행 흐름
+
+```
+SparkUnpivotNodeFactory
+  └─ creates SparkUnpivotNodeModel
+
+configureInternal()
+  ├─ retained/value 컬럼 존재 여부 검증
+  ├─ 중복/빈값/충돌 검증
+  ├─ 타입 호환성 검증 (castToString OFF 시)
+  └─ 출력 스펙 생성: [retained 컬럼들] + [variable: String] + [value: String]
+
+executeInternal()
+  ├─ SparkUnpivotJobInput 구성 (sortOption, varMap 포함)
+  ├─ SparkContextUtil.getJobRunFactory() 로 Job 실행
+  └─ Spark Job 결과 스펙으로 SparkDataPortObject 반환
+
+UnpivotJob.runJob() (Spark 측)
+  ├─ castToString=true → value 컬럼들 cast(StringType)
+  ├─ Dataset.unpivot(idCols, valCols, variableColName, valueColName)
+  ├─ varMap 적용 → when/otherwise로 variable 컬럼 값 치환
+  ├─ skipMissing=true → filter(valueCol.isNotNull())
+  ├─ sortOption 적용 (retained/variable/none)
+  ├─ validateOnly=true → inputFrame.count() + result.showString(5) 반환
+  └─ 결과 DataFrame + IntermediateSpec 반환
+```
+
+---
+
+## 다이얼로그 기능
+
+### 탭 구성
+- **Tab 1 - Retained Columns**: `DialogComponentColumnFilter`로 유지 컬럼 선택 (타입 표시)
+- **Tab 2 - Value Columns**: `DialogComponentColumnFilter`로 값 컬럼 선택 (타입 표시)
+- **Tab 3 - Options**: 출력 설정, 정렬, 행 수 추정, 변수 값 매핑
+- **Tab 4 - Validation**: Check 버튼으로 샘플 데이터 미리보기
+
+### 컬럼 타입 표시
+- Retained/Value 컬럼 필터에 `columnName (Type)` 형식으로 데이터 타입 표시
+- `installTypeRenderers()`로 JList에 커스텀 ListCellRenderer 적용
+
+### 출력 행 수 추정
+- 다이얼로그 열 때 백그라운드(SwingWorker)로 입력 행 수 자동 조회
+- `입력 행 수 × value 컬럼 수 = 예상 출력 행 수` 표시
+- Skip missing values ON 시 "(max - actual may be less due to Skip missing values)" 안내
+
+### 출력 정렬 옵션
+- No sorting (기본) / Sort by retained columns / Sort by variable column
+
+### 변수 값 매핑 (Variable Value Mapping)
+- JTable로 각 value 컬럼의 variable 값을 커스텀 이름으로 변경 가능
+- 기본값: 컬럼명 자체 (변경하지 않으면 저장하지 않음)
+
+### Validation Check
+- `DataAwareNodeDialogPane` 상속하여 PortObject 접근
+- Check 버튼 → SwingWorker로 validate-only Spark Job 실행
+- 성공 시 초록색 + 샘플 데이터 5행 표시 / 실패 시 빨간색 에러
+- 성공 시 입력 행 수도 갱신되어 행 수 추정에 반영
+
+### syncFilterModels
+- `DialogComponentColumnFilter`는 saveSettingsTo() 호출 전까지 SettingsModel을 UI와 동기화하지 않음
+- `syncFilterModels()`: 임시 NodeSettings에 saveSettingsTo() 호출하여 강제 동기화
+- validateSettings(), runValidation(), updateRowEstimate(), updateVarMapTable() 등에서 사용
+
+---
+
+## 테스트 완료 항목
+
+- [x] 기본 unpivot 실행 (동일 타입 value 컬럼)
+- [x] retained 미선택 → 다이얼로그 에러
+- [x] value 미선택 → 다이얼로그 에러
+- [x] retained/value 중복 → 다이얼로그 에러
+- [x] 혼합 타입 + cast OFF → 다이얼로그 에러 (Spark 실행 전 차단)
+- [x] 혼합 타입 + cast ON → 정상 실행
+- [x] variable/value 컬럼명 동일 → 다이얼로그 에러
+- [x] 출력 컬럼명 vs retained 컬럼명 충돌 → 다이얼로그 에러
+- [x] 빈 DataFrame (0행) → 정상 (0행 결과)
+- [x] 전부 null + skipMissing ON → 0행 결과
+- [x] 전부 null + skipMissing OFF → null 포함 행 출력
+- [x] value 컬럼 1개만 선택 → 정상
+- [x] 설정 저장/재로드 → 설정값 유지
+- [x] upstream 컬럼 변경 → 적절한 에러 메시지
+- [x] 노드 Reset → 재실행 동일 결과
+- [x] Integer + Double (cast OFF) → Spark 자동 변환 정상
+- [x] Long Integer + Double (cast OFF) → Spark 자동 변환 정상
+- [x] Sort by retained / Sort by variable → 정상 정렬
+- [x] Variable Value Mapping → 커스텀 이름 적용 정상
+- [x] Validation Check → 샘플 데이터 미리보기 정상
+- [x] 행 수 추정 → 다이얼로그 열 때 자동 조회 정상
+- [x] Skip missing values + 행 수 추정 안내 정상
+- [x] 처음 사용 시 → syncFilterModels로 정상 동작
+
+---
+---
+
+# Spark Multi Query Node (신규 개발)
+
+## 개요
+
+선택한 여러 컬럼에 동일한 SQL 표현식 템플릿을 적용하여 변환하는 노드.
+`$columnS` 플레이스홀더가 각 대상 컬럼명으로 치환되어 Spark SQL로 실행된다.
+
+- **노드명**: Spark Multi Query(Hyim)
+- **최소 Spark 버전**: 3.4
+- **노드 타입**: Manipulator
+
+---
+
+## 플러그인 구조
+
+| 플러그인 | 역할 |
+|----------|------|
+| `org.knime.bigdata.spark.dx.node` | 노드 UI (Factory, Model, Dialog, Settings, JobInput/Output) |
+| `org.knime.bigdata.spark3_4.dx` | Spark 3.4용 Job 구현 |
+| `org.knime.bigdata.spark3_5.dx` | Spark 3.5용 Job 구현 |
+
+---
+
+## 클래스 구조
+
+### Node 레이어 (`org.knime.bigdata.spark.dx.node.sql.multiquery`)
+
+| 파일 | 역할 |
+|------|------|
+| `SparkMultiQueryNodeFactory.java` | 노드 팩토리. 카테고리: "sql" |
+| `SparkMultiQueryNodeFactory.xml` | 노드 설명 (2탭: Column Selection, Expression & Options) |
+| `SparkMultiQueryNodeModel.java` | 노드 모델. configure에서 유효성 검증 (keepOriginal+패턴 충돌, 별칭 충돌 포함), execute에서 Job 실행 |
+| `SparkMultiQueryNodeDialog.java` | `DataAwareNodeDialogPane` 상속. 2탭 UI, 템플릿 드롭다운, Keep Original, Output Pattern, SQL Preview, 선택 컬럼 요약, 개선된 Check (전체+개별 컬럼 테스트 + 샘플 데이터) |
+| `SparkMultiQuerySettings.java` | 설정 모델 (targetColumns, sqlExpression, keepOriginalColumns, outputColumnPattern) |
+| `SparkMultiQueryJobInput.java` | Job 입력 VO. validateOnly/keepOriginal/outputPattern 지원 |
+| `SparkMultiQueryJobOutput.java` | Job 출력 VO. previewData 포함 |
+
+### Spark Job 레이어 (spark3_4 / spark3_5 동일 구조)
+
+| 파일 | 역할 |
+|------|------|
+| `MultiQueryJob.java` | SparkJob 구현. temp view 등록 → SELECT 생성 (keepOriginal/outputPattern 반영) → 실행. validateOnly시 LIMIT 5 + showString |
+| `MultiQueryJobRunFactory.java` | Job 실행 팩토리 |
+| `MultiQueryJobRunFactoryProvider.java` | SPI 프로바이더 |
+
+---
+
+## 포트 구성
+
+| 포트 | 방향 | 타입 | 설명 |
+|------|------|------|------|
+| 0 | 입력 | `SparkDataPortObject` | 변환 대상 Spark DataFrame |
+| 0 | 출력 | `SparkDataPortObject` | SQL 표현식 적용된 결과 DataFrame |
+
+---
+
+## 설정 항목
+
+| Config Key | 타입 | 기본값 | 설명 |
+|------------|------|--------|------|
+| `targetColumns` | FilterString | [] | SQL 표현식을 적용할 대상 컬럼 목록 |
+| `sqlExpression` | String | "string($columnS)" | $columnS 플레이스홀더 포함 SQL 표현식 |
+| `keepOriginalColumns` | Boolean | false | true 시 원본 컬럼 유지하고 변환 컬럼을 새로 추가 |
+| `outputColumnPattern` | String | "$columnS" | 출력 컬럼 이름 패턴. $columnS가 컬럼명으로 치환됨 |
+
+---
+
+## 실행 흐름
+
+```
+SparkMultiQueryNodeFactory
+  └─ creates SparkMultiQueryNodeModel
+
+configureInternal()
+  ├─ 대상 컬럼 존재 여부 검증
+  ├─ SQL 표현식 빈값/플레이스홀더 검증
+  ├─ Output Pattern 빈값/플레이스홀더 검증
+  ├─ keepOriginal=true + pattern="$columnS" → 중복 컬럼명 에러
+  ├─ keepOriginal=true → 별칭이 기존 비대상 컬럼명과 충돌 검사
+  └─ 출력 스펙 null (SQL 결과 타입은 실행 시 결정)
+
+executeInternal()
+  ├─ SparkMultiQueryJobInput 구성 (keepOriginal, outputPattern 포함)
+  ├─ SparkContextUtil.getJobRunFactory() 로 Job 실행
+  └─ Spark Job 결과 스펙으로 SparkDataPortObject 반환
+
+MultiQueryJob.runJob() (Spark 측)
+  ├─ 입력 DataFrame을 temp view 등록
+  ├─ validateOnly=true → 전체 대상 컬럼으로 테스트 쿼리 (LIMIT 5) 실행 + showString
+  ├─ SELECT 절 구성:
+  │   ├─ 대상 컬럼 (keepOriginal=false): expr(`col`) AS `alias`
+  │   ├─ 대상 컬럼 (keepOriginal=true): `col`, expr(`col`) AS `alias`
+  │   └─ 비대상 컬럼: `col` (그대로 유지)
+  ├─ spark.sql(query) 실행
+  ├─ temp view 정리 (finally)
+  └─ 결과 DataFrame + IntermediateSpec 반환
+```
+
+---
+
+## 다이얼로그 기능
+
+### 탭 구성
+- **Tab 1 - Column Selection**: `DialogComponentColumnFilter`로 대상 컬럼 선택 (타입 표시)
+- **Tab 2 - Expression & Options**: 선택 컬럼 요약, 템플릿 드롭다운, SQL 표현식, 옵션, SQL 프리뷰, Check
+
+### 선택 컬럼 요약 (Target Columns)
+- Expression & Options 탭 상단에 현재 선택된 컬럼 요약 표시
+- `"3 column(s): age (Integer), name (String), salary (Double)"` 형식
+
+### 컬럼 타입 표시
+- Column Selection 필터에 `columnName (Type)` 형식으로 데이터 타입 표시
+
+### 표현식 템플릿 드롭다운
+11개 프리셋 제공 (양방향 동기화 - 드롭다운↔텍스트영역):
+- Cast to String: `string($columnS)`
+- Cast to Integer: `CAST($columnS AS INT)`
+- Cast to Double: `CAST($columnS AS DOUBLE)`
+- Uppercase: `UPPER($columnS)`
+- Lowercase: `LOWER($columnS)`
+- Trim: `TRIM($columnS)`
+- Replace NULL with 0: `COALESCE($columnS, 0)`
+- Replace NULL with empty: `COALESCE($columnS, '')`
+- Parse Date (yyyyMMdd): `TO_DATE(string($columnS), 'yyyyMMdd')`
+- Regex Replace (non-digits): `REGEXP_REPLACE($columnS, '[^0-9]', '')`
+- Round to 2 decimals: `ROUND($columnS, 2)`
+
+### Keep Original Columns
+- 체크 시 원본 대상 컬럼 유지 + 변환된 컬럼을 새로 추가
+- Output Pattern이 `$columnS`와 같으면 중복 에러
+
+### Output Column Pattern
+- `$columnS` 포함 필수 (예: `$columnS_str`, `$columnS_new`)
+- keepOriginal=false 시 기본값 `$columnS`는 원래 컬럼 이름 유지
+
+### SQL Preview
+- 실시간 프리뷰 (DocumentListener 기반)
+- 현재 설정 기반으로 생성될 SELECT 절을 미리 표시
+
+### Validation Check
+- `DataAwareNodeDialogPane` 상속하여 PortObject 접근
+- Check 버튼 클릭 시:
+  1. 로컬 검증 (컬럼 선택, 표현식 비어있지 않음, $columnS 포함)
+  2. SwingWorker로 백그라운드 Spark Job 실행 (validateOnly=true)
+  3. **전체 컬럼 테스트**: 모든 대상 컬럼을 한 번에 테스트
+  4. **실패 시 개별 컬럼 테스트**: 어떤 컬럼이 실패했는지 식별
+  5. 성공 → 초록색 + 샘플 데이터 5행 표시 / 실패 → 빨간색 (실패 컬럼 목록 + 에러)
+- upstream 노드 미실행 시 "Execute the upstream node first" 에러
+
+### syncFilterModel
+- `DialogComponentColumnFilter`는 saveSettingsTo() 호출 전까지 SettingsModel을 UI와 동기화하지 않음
+- `syncFilterModel()`: 임시 NodeSettings에 saveSettingsTo() 호출하여 강제 동기화
+- updateSelectedColumnsInfo(), updatePreview(), runValidation(), saveSettingsTo()에서 사용
+
+---
+
+## 테스트 완료 항목
+
+- [x] 기본 string 변환: `string($columnS)` → 정상
+- [x] CAST 변환, COALESCE, UPPER, TRIM 등 → 정상
+- [x] 단일/다수/전체 컬럼 선택 → 정상
+- [x] 비대상 컬럼 보존 → 정상
+- [x] 대상 컬럼 미선택 OK → 에러
+- [x] SQL 표현식 빈값/플레이스홀더 미포함 OK → 에러
+- [x] Output Pattern 빈값/플레이스홀더 미포함 OK → 에러
+- [x] keepOriginal + 기본 패턴 → 중복 에러
+- [x] Check 성공 → 초록색 + 샘플 데이터 표시
+- [x] Check 실패 → 빨간색 + 실패 컬럼 식별
+- [x] 템플릿 드롭다운 양방향 동기화 → 정상
+- [x] keepOriginal ON + 패턴 → 원본 유지 + 새 컬럼 추가
+- [x] SQL Preview 실시간 업데이트 → 정상
+- [x] 설정 저장/재로드 → 설정값 유지
+- [x] 빈 DataFrame (0행) → 정상
+- [x] 특수문자 컬럼명 → 백틱 이스케이프 정상
+- [x] 처음 사용 시 → syncFilterModel로 정상 동작
+- [x] 선택 컬럼 요약 표시 → 정상
+
+---
+
+## 공통 기술 패턴
+
+### DialogComponentColumnFilter 모델 동기화 문제
+- KNIME의 `DialogComponentColumnFilter`는 `saveSettingsTo()` 호출 시에만 내부 `SettingsModelFilterString`을 UI 패널과 동기화함
+- 다이얼로그를 처음 열거나 탭을 전환한 뒤 `getIncludeList()`를 호출하면 빈 리스트 반환될 수 있음
+- **해결**: `syncFilterModels()` 헬퍼 메서드로 임시 NodeSettings에 saveSettingsTo() 호출하여 강제 동기화
+- Unpivot / Multi Query 양쪽 노드에 적용
+
+### JobOutput Number 직렬화 문제
+- KNIME `JobOutput.set(key, value)`에서 `long`/`Number` 타입 직접 저장 불가
+- `"Instance of Number not supported. Use dedicated methods"` 에러 발생
+- **해결**: `String.valueOf(long)`으로 변환하여 저장, 읽을 때 `Long.parseLong()` 사용

@@ -4,7 +4,8 @@ Bundle-Name: DX Spark Unpivot Node
 Bundle-SymbolicName: org.knime.bigdata.spark.dx.node;singleton:=true
 Bundle-Version: 1.0.0.qualifier
 Bundle-Vendor: DX
-Export-Package: org.knime.bigdata.spark.dx.node.preproc.unpivot
+Export-Package: org.knime.bigdata.spark.dx.node.preproc.unpivot,
+ org.knime.bigdata.spark.dx.node.sql.multiquery
 Require-Bundle: org.knime.core;bundle-version="[5.6.0,6.0.0)",
  org.knime.base;bundle-version="[5.6.0,6.0.0)",
  org.knime.bigdata.spark.core;bundle-version="[5.6.0,6.0.0)",

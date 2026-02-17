@@ -3,6 +3,7 @@ package org.knime.bigdata.spark.dx.node.preproc.unpivot;
 import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 import org.knime.bigdata.spark.core.context.SparkContextID;
@@ -16,6 +17,7 @@ import org.knime.bigdata.spark.core.util.SparkIDs;
 import org.knime.core.data.DataColumnSpec;
 import org.knime.core.data.DataColumnSpecCreator;
 import org.knime.core.data.DataTableSpec;
+import org.knime.core.data.DataType;
 import org.knime.core.data.def.StringCell;
 import org.knime.core.node.ExecutionContext;
 import org.knime.core.node.InvalidSettingsException;
@@ -95,9 +97,70 @@ public class SparkUnpivotNodeModel extends SparkNodeModel {
             throw new InvalidSettingsException("Value column name must not be empty.");
         }
 
-        // Build output spec: [retained columns] + [variable: String] + [value: String]
+        // Validate variable and value column names are different
+        if (m_settings.getVariableColName().trim().equals(m_settings.getValueColName().trim())) {
+            throw new InvalidSettingsException(
+                "Variable column name and Value column name must be different. "
+                + "Both are set to '" + m_settings.getVariableColName().trim() + "'.");
+        }
+
+        // Validate output column names don't conflict with retained column names
+        final Set<String> retainedSet = new HashSet<>(retainedColumns);
+        final String varColName = m_settings.getVariableColName().trim();
+        final String valColName = m_settings.getValueColName().trim();
+        if (retainedSet.contains(varColName)) {
+            throw new InvalidSettingsException(
+                "Variable column name '" + varColName + "' conflicts with a retained column name. "
+                + "Please choose a different name.");
+        }
+        if (retainedSet.contains(valColName)) {
+            throw new InvalidSettingsException(
+                "Value column name '" + valColName + "' conflicts with a retained column name. "
+                + "Please choose a different name.");
+        }
+
+        // Check type compatibility of value columns
+        if (!m_settings.castToString()) {
+            checkValueColumnTypes(tableSpec, valueColumns);
+        }
+
+        // Build output spec: [retained columns] + [variable: String] + [value: type]
         final DataTableSpec outputSpec = createOutputSpec(tableSpec);
         return new PortObjectSpec[]{new SparkDataPortObjectSpec(sparkSpec.getContextID(), outputSpec)};
+    }
+
+    /**
+     * Check if value columns have compatible types. Numeric types (int, long, double) are compatible.
+     * String mixed with numeric types are not compatible.
+     */
+    private void checkValueColumnTypes(final DataTableSpec tableSpec, final List<String> valueColumns)
+            throws InvalidSettingsException {
+
+        boolean hasNumeric = false;
+        boolean hasString = false;
+        final List<String> typeDetails = new ArrayList<>();
+
+        for (String col : valueColumns) {
+            final DataColumnSpec colSpec = tableSpec.getColumnSpec(col);
+            if (colSpec != null) {
+                final DataType type = colSpec.getType();
+                final String typeName = type.getName();
+                typeDetails.add(typeName + " (`" + col + "`)");
+
+                if (type.isCompatible(org.knime.core.data.DoubleValue.class)) {
+                    hasNumeric = true;
+                } else {
+                    hasString = true;
+                }
+            }
+        }
+
+        if (hasNumeric && hasString) {
+            throw new InvalidSettingsException(
+                "Value columns have incompatible types: " + String.join(", ", typeDetails)
+                + ". Spark unpivot requires all value columns to share a common type. "
+                + "Enable 'Cast all value columns to String' option to convert all values to String.");
+        }
     }
 
     private DataTableSpec createOutputSpec(final DataTableSpec inputSpec) {
@@ -130,6 +193,10 @@ public class SparkUnpivotNodeModel extends SparkNodeModel {
         final List<String> retainedColumns = m_settings.getRetainedColumns();
         final List<String> valueColumns = m_settings.getValueColumns();
 
+        final Map<String, String> varMap = m_settings.getVariableValueMap();
+        final String[] varMapKeys = varMap.keySet().toArray(new String[0]);
+        final String[] varMapValues = varMap.values().toArray(new String[0]);
+
         final SparkUnpivotJobInput jobInput = new SparkUnpivotJobInput(
             inputObject,
             outputObject,
@@ -137,7 +204,11 @@ public class SparkUnpivotNodeModel extends SparkNodeModel {
             valueColumns.toArray(new String[0]),
             m_settings.getVariableColName(),
             m_settings.getValueColName(),
-            m_settings.skipMissingValues());
+            m_settings.skipMissingValues(),
+            m_settings.castToString(),
+            m_settings.getSortOption(),
+            varMapKeys,
+            varMapValues);
 
         exec.setMessage("Executing Spark unpivot job...");
         final SparkUnpivotJobOutput jobOutput = SparkContextUtil

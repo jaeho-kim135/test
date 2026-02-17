@@ -5,6 +5,9 @@
       <JobRunFactoryProvider
             ProviderClass="org.knime.bigdata.spark3_5.dx.jobs.preproc.unpivot.UnpivotJobRunFactoryProvider">
       </JobRunFactoryProvider>
+      <JobRunFactoryProvider
+            ProviderClass="org.knime.bigdata.spark3_5.dx.jobs.sql.multiquery.MultiQueryJobRunFactoryProvider">
+      </JobRunFactoryProvider>
    </extension>
    <extension point="org.knime.bigdata.spark.core.SparkJarProvider">
       <SparkJarProvider

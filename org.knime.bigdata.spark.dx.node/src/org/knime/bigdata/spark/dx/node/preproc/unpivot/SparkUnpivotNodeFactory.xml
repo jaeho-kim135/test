@@ -24,14 +24,15 @@
                 would be transformed into [ID, variable, value] with one row per original value column.
             </p>
             <p>
-                The node uses Spark's <tt>stack()</tt> SQL function internally.
+                The node uses Spark's <tt>Dataset.unpivot()</tt> API (Spark 3.4+).
             </p>
         </intro>
         <tab name="Retained Columns">
             <option name="Retained columns">
                 Select the columns that should be retained (kept as-is) in the output.
                 These are typically ID or key columns. Retained columns will be repeated
-                for each unpivoted value column row.
+                for each unpivoted value column row. Column data types are displayed
+                next to each column name for convenience.
             </option>
         </tab>
         <tab name="Value Columns">
@@ -39,7 +40,8 @@
                 Select the columns that should be unpivoted (melted) into rows.
                 Each selected column will generate one row per input row in the output,
                 with the column name stored in the variable column and the cell value
-                stored in the value column.
+                stored in the value column. Column data types are displayed
+                next to each column name for convenience.
             </option>
         </tab>
         <tab name="Options">
@@ -53,6 +55,36 @@
             </option>
             <option name="Skip missing values">
                 If checked, rows where the value is missing (null) will be omitted from the output.
+            </option>
+            <option name="Cast all value columns to String">
+                If checked, all value columns will be cast to String type before unpivoting.
+                This is useful when value columns have mixed types (e.g. Integer, Double, and String),
+                which would otherwise cause a type mismatch error.
+            </option>
+            <option name="Sort output">
+                Controls the sort order of the output rows.
+                "No sorting" keeps the default Spark ordering.
+                "Sort by retained columns" orders by the retained (ID) columns.
+                "Sort by variable column" orders alphabetically by the variable column.
+            </option>
+            <option name="Estimated output">
+                Displays the estimated number of output rows based on the input row count
+                and the number of selected value columns (input rows x value columns).
+                The input row count is automatically fetched from Spark when the dialog opens.
+                When "Skip missing values" is enabled, the actual output may be less than the estimate.
+            </option>
+            <option name="Variable Value Mapping">
+                An optional table that allows customizing the values in the variable column.
+                By default, the variable column contains the original column names.
+                Edit the "Variable Label" column to rename specific values
+                (e.g. change "salary_2023" to "Salary").
+            </option>
+        </tab>
+        <tab name="Validation">
+            <option name="Check">
+                Validates the unpivot configuration by executing a test unpivot job against
+                the Spark context. Displays a sample of up to 5 output rows on success.
+                The upstream node must be executed for this validation to work.
             </option>
         </tab>
     </fullDescription>

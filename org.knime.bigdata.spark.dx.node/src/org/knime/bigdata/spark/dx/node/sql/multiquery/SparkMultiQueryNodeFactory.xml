@@ -1,0 +1,94 @@
+<?xml version="1.0" encoding="utf-8"?>
+<knimeNode xmlns="http://knime.org/node/v3.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://knime.org/node/v3.1 http://knime.org/node/v3.1.xsd"
+    icon="icon.png" type="Manipulator">
+    <name>Spark Multi Query(Hyim)</name>
+    <shortDescription>
+        Applies a SQL expression to multiple selected columns by replacing the $columnS placeholder
+        with each target column name.
+    </shortDescription>
+    <fullDescription>
+        <intro>
+            <p>
+                This node applies a single SQL expression template to multiple columns in a
+                Spark DataFrame/RDD. The expression uses the <tt>$columnS</tt> placeholder,
+                which is dynamically replaced with each selected target column name at execution time.
+            </p>
+            <p>
+                For example, with the expression <tt>string($columnS)</tt> and target columns
+                [col1, col2, col3], the node generates:
+            </p>
+            <p>
+                <tt>SELECT string(`col1`) AS `col1`, string(`col2`) AS `col2`, string(`col3`) AS `col3`, ... FROM input</tt>
+            </p>
+            <p>
+                Non-target columns are passed through unchanged. The expression is executed
+                using Spark SQL.
+            </p>
+            <p>
+                <b>Keep original columns</b>: When enabled, the original target columns are preserved
+                and the transformed values are added as new columns using the output column pattern.
+                For example, with pattern <tt>$columnS_str</tt>, column <tt>age</tt> produces both
+                <tt>age</tt> (original) and <tt>age_str</tt> (transformed).
+            </p>
+        </intro>
+        <tab name="Column Selection">
+            <option name="Target columns">
+                Select the columns to which the SQL expression will be applied.
+                Each selected column name replaces the <tt>$columnS</tt> placeholder in the expression.
+                Non-selected columns are kept as-is in the output.
+                Column data types are displayed next to each column name for convenience.
+            </option>
+        </tab>
+        <tab name="Expression &amp; Options">
+            <option name="Target Columns (summary)">
+                Displays a read-only summary of the currently selected target columns
+                with their data types (e.g. "3 column(s): age (Integer), name (String), salary (Double)").
+            </option>
+            <option name="Template">
+                A dropdown of commonly used SQL expression templates. Selecting a template
+                populates the SQL expression field. The dropdown syncs bidirectionally with
+                the expression text area. Available templates include:
+                Cast to String, Cast to Integer/Double, Uppercase, Lowercase, Trim,
+                Replace NULL (empty/zero), Parse Date, and Regex Replace.
+            </option>
+            <option name="SQL Expression">
+                The SQL expression template. Use <tt>$columnS</tt> as a placeholder for the
+                column name. This placeholder is replaced with each target column name.
+                Examples: <tt>string($columnS)</tt>, <tt>CAST($columnS AS INT)</tt>,
+                <tt>COALESCE($columnS, 0)</tt>, <tt>UPPER($columnS)</tt>.
+            </option>
+            <option name="Keep original columns">
+                When enabled, the original target columns are preserved in the output,
+                and the transformed values are added as new columns. The output column pattern
+                must differ from <tt>$columnS</tt> to avoid duplicate names.
+            </option>
+            <option name="Output column pattern">
+                The naming pattern for output columns. Must contain <tt>$columnS</tt>.
+                Default is <tt>$columnS</tt> (replaces the original column).
+                Use patterns like <tt>$columnS_str</tt> or <tt>$columnS_new</tt> to create
+                new column names when keeping originals.
+            </option>
+            <option name="SQL Preview">
+                Shows a live preview of the SQL SELECT clause that will be generated
+                based on the current expression, target columns, and options.
+                Updates in real-time as you change the expression, columns, or options.
+            </option>
+            <option name="Check">
+                Validates the SQL expression by executing a test query (LIMIT 5) against the
+                Spark context using all selected target columns. On success, displays a sample
+                of up to 5 output rows. If validation fails, the node identifies which specific
+                columns caused the failure by testing each column individually.
+                The upstream node must be executed for this validation to work.
+            </option>
+        </tab>
+    </fullDescription>
+    <ports>
+        <inPort index="0" name="Spark DataFrame/RDD">
+            Spark DataFrame/RDD to transform.
+        </inPort>
+        <outPort index="0" name="Spark DataFrame/RDD">
+            Spark DataFrame/RDD with the SQL expression applied to the selected columns.
+        </outPort>
+    </ports>
+</knimeNode>

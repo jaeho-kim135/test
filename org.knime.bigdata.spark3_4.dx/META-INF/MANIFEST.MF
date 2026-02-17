@@ -4,7 +4,8 @@ Bundle-Name: DX Spark Unpivot Jobs for Spark 3.4
 Bundle-SymbolicName: org.knime.bigdata.spark3_4.dx;singleton:=true
 Bundle-Version: 1.0.0.qualifier
 Bundle-Vendor: DX
-Export-Package: org.knime.bigdata.spark3_4.dx.jobs.preproc.unpivot
+Export-Package: org.knime.bigdata.spark3_4.dx.jobs.preproc.unpivot,
+ org.knime.bigdata.spark3_4.dx.jobs.sql.multiquery
 Require-Bundle: org.knime.core;bundle-version="[5.6.0,6.0.0)",
  org.knime.bigdata.spark.core;bundle-version="[5.6.0,6.0.0)",
  org.knime.bigdata.spark.dx.node;bundle-version="[1.0.0,2.0.0)",
