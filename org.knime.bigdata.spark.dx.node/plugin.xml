@@ -2,6 +2,14 @@
 <?eclipse version="3.4"?>
 <plugin>
    <extension
+         point="org.knime.workbench.repository.categories">
+      <category
+            level-id="sql"
+            name="SQL"
+            path="/toolintegration/spark">
+      </category>
+   </extension>
+   <extension
          point="org.knime.bigdata.spark.core.SparkNodeFactoryProvider">
       <SparkNodeFactoryProvider
             ProviderClass="org.knime.bigdata.spark.dx.node.DxSparkNodeFactoryProvider">
