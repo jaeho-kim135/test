@@ -509,3 +509,26 @@ MultiQueryJob.runJob() (Spark 측)
 - KNIME `JobOutput.set(key, value)`에서 `long`/`Number` 타입 직접 저장 불가
 - `"Instance of Number not supported. Use dedicated methods"` 에러 발생
 - **해결**: `String.valueOf(long)`으로 변환하여 저장, 읽을 때 `Long.parseLong()` 사용
+
+### DialogComponentColumnFilter 최초 오픈 시 기본 배치 (Available 우선)
+- 노드를 처음 열 때 (OK 클릭 전) 모든 컬럼이 Available(exclude) 쪽에 보이도록 하려면 `freshSettings` 방식 사용
+- `CFG_CONFIGURED` 플래그(Settings 클래스에서 OK 클릭 시에만 저장)와 `m_everSavedWithOk`(Dialog 인스턴스 필드, 현 세션에서 OK 클릭 시 `true`)를 AND 조건으로 신선도 판단
+- **조건**: `if (m_everSavedWithOk || settings.containsKey(CFG_CONFIGURED))` → 기존 설정 로드; 그 외 → freshSettings 생성
+- freshSettings: 현재 spec의 모든 컬럼을 exclude 리스트에 넣은 `NodeSettings("defaults")`를 직접 만들어 `loadSettingsFrom()` 호출
+- `SettingsModelFilterString` 두 번째 파라미터(`inclModeDefault=false`)는 EnforceExclusion; 알 수 없는 컬럼은 Available로 이동
+- Unpivot: retainedColumns, valueColumns 양쪽 모두 freshSettings 적용
+- Multi Query: targetColumns에 freshSettings 적용
+
+### DialogComponentColumnFilter 컬럼 목록 비가시 문제 (Swing 레이아웃 타이밍)
+- `DataAwareNodeDialogPane.loadSettingsFrom()`은 다이얼로그 표시 전에 호출됨
+- 이 시점에서 내부 JScrollPane이 크기 0이기 때문에 동기적 `revalidate()` + `repaint()`는 효과 없음
+- **증상**: Available 패널에 데이터는 존재하지만 화면에 보이지 않음
+- **해결**: `SwingUtilities.invokeLater`로 EDT 큐 뒤로 작업 지연 + `resetSplitPaneDividers()` + `w.validate()` on window ancestor
+- `JSplitPane.resetToPreferredSizes()`: 분할창 divider가 0에 고정된 경우 비율 초기화
+- `resetSplitPaneDividers(container)`: 컴포넌트 트리를 재귀 탐색하여 모든 JSplitPane에 `resetToPreferredSizes()` 적용
+- `SwingUtilities.getWindowAncestor(panel)`로 상위 Window를 찾아 `window.validate()` + `window.repaint()` 호출
+
+### setShowInvalidIncludeColumns(true) 부작용
+- `DialogComponentColumnFilter.setShowInvalidIncludeColumns(true)` 설정 시, include 목록에 있는 컬럼이 현재 spec에 없을 경우 빨간 테두리로 표시됨
+- OK 없이 닫고 재열기 시 이전 include 목록이 현 spec과 불일치하여 Target에 빨간 테두리 + Available 비가시 현상 발생
+- **해결**: 생성자에서 `setShowInvalidIncludeColumns(true)` 호출 제거 (기본값 false 유지)
