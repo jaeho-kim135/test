@@ -532,3 +532,171 @@ MultiQueryJob.runJob() (Spark 측)
 - `DialogComponentColumnFilter.setShowInvalidIncludeColumns(true)` 설정 시, include 목록에 있는 컬럼이 현재 spec에 없을 경우 빨간 테두리로 표시됨
 - OK 없이 닫고 재열기 시 이전 include 목록이 현 spec과 불일치하여 Target에 빨간 테두리 + Available 비가시 현상 발생
 - **해결**: 생성자에서 `setShowInvalidIncludeColumns(true)` 호출 제거 (기본값 false 유지)
+
+---
+---
+
+# Spark Expression Node (신규 개발)
+
+## 개요
+
+여러 Spark SQL 표현식을 적용하여 컬럼을 변환하거나 추가하는 Expression 노드.
+KNIME의 Expression 노드를 Spark 환경에서 동작하도록 구현한 버전.
+각 표현식 행은 SQL 표현식, 출력 모드(APPEND/REPLACE), 출력 컬럼명으로 구성.
+
+- **노드명**: Spark Expression (Hyim)
+- **최소 Spark 버전**: 3.4
+- **노드 타입**: Manipulator
+
+---
+
+## 플러그인 구조
+
+| 플러그인 | 역할 |
+|----------|------|
+| `org.knime.bigdata.spark.dx.node` | 노드 UI (Factory, Model, Dialog, Settings, JobInput/Output) |
+| `org.knime.bigdata.spark3_4.dx` | Spark 3.4용 Job 구현 |
+| `org.knime.bigdata.spark3_5.dx` | Spark 3.5용 Job 구현 |
+
+---
+
+## 클래스 구조
+
+### Node 레이어 (`org.knime.bigdata.spark.dx.node.sql.expression`)
+
+| 파일 | 역할 |
+|------|------|
+| `SparkExpressionNodeFactory.java` | 노드 팩토리. `DefaultSparkNodeFactory` 상속. 카테고리: "sql" |
+| `SparkExpressionNodeFactory.xml` | 노드 설명 (1탭: Expression - split-pane 레이아웃) |
+| `SparkExpressionNodeModel.java` | 노드 모델. configure에서 유효성 검증, execute에서 Job 실행 |
+| `SparkExpressionNodeDialog.java` | `DataAwareNodeDialogPane` 상속. KNIME Expression 노드 스타일 split-pane 레이아웃, Evaluate 버튼 |
+| `SparkExpressionSettings.java` | 설정 모델 (expressions[], outputModes[], columnNames[]) |
+| `SparkExpressionJobInput.java` | Job 입력 VO. validateOnly 지원 |
+| `SparkExpressionJobOutput.java` | Job 출력 VO. previewData 포함 |
+
+### Spark Job 레이어 (spark3_4 / spark3_5 동일 구조)
+
+| 파일 | 역할 |
+|------|------|
+| `ExpressionJob.java` | SparkJob 구현. `withColumn(name, expr(sql))` 순차 적용. validateOnly시 LIMIT 5 + showString |
+| `ExpressionJobRunFactory.java` | Job 실행 팩토리 |
+| `ExpressionJobRunFactoryProvider.java` | SPI 프로바이더 |
+
+---
+
+## 포트 구성
+
+| 포트 | 방향 | 타입 | 설명 |
+|------|------|------|------|
+| 0 | 입력 | `SparkDataPortObject` | 변환 대상 Spark DataFrame |
+| 0 | 출력 | `SparkDataPortObject` | 표현식 적용된 결과 DataFrame |
+
+---
+
+## 설정 항목
+
+| Config Key | 타입 | 기본값 | 설명 |
+|------------|------|--------|------|
+| `expressions` | String[] | [""] | Spark SQL 표현식 목록 |
+| `outputModes` | String[] | ["APPEND"] | 출력 모드 목록 (APPEND / REPLACE) |
+| `columnNames` | String[] | ["new_column"] | 출력 컬럼명 목록 |
+| `nodeConfigured` | Boolean | false | OK 클릭 여부 |
+
+---
+
+## 유효성 검증 (Dialog OK + NodeModel configure 양쪽)
+
+| 검증 | 에러 메시지 |
+|------|------------|
+| 표현식 비어있음 | "Expression N is empty. Enter a Spark SQL expression." |
+| 컬럼명 비어있음 | "Output column name for Expression N is empty." |
+| 중복 출력 컬럼명 | "Duplicate output column name 'X' in Expression N." |
+| REPLACE: 컬럼 미존재 | "Expression N: cannot replace column 'X' because it does not exist." |
+| APPEND: 컬럼 이미 존재 | "Expression N: output column 'X' already exists in the input table." |
+| 노드 미설정 | "Node has not been configured." |
+
+---
+
+## 실행 흐름
+
+```
+SparkExpressionNodeFactory
+  └─ creates SparkExpressionNodeModel
+
+configureInternal()
+  ├─ 노드 설정 여부 확인 (CFG_CONFIGURED)
+  ├─ 표현식 비어있음/컬럼명 비어있음 검증
+  ├─ 중복 출력 컬럼명 검증 (APPEND + REPLACE 모두)
+  ├─ REPLACE: 대상 컬럼 존재 여부 검증 (체인 추적)
+  ├─ APPEND: 기존 컬럼명 충돌 검증
+  └─ 출력 스펙 null (SQL 결과 타입은 실행 시 결정)
+
+executeInternal()
+  ├─ SparkExpressionJobInput 구성 (expressions, modes, names)
+  ├─ SparkContextUtil.getJobRunFactory() 로 Job 실행
+  └─ Spark Job 결과 스펙으로 SparkDataPortObject 반환
+
+ExpressionJob.runJob() (Spark 측)
+  ├─ validateOnly=true:
+  │   ├─ 표현식 순차 적용 withColumn(name, expr(sql))
+  │   ├─ 실패 시 "Expression N error: ..." 반환
+  │   └─ 성공 시 showString(5) 프리뷰 반환
+  ├─ 정상 실행:
+  │   ├─ 표현식 순차 적용 withColumn(name, expr(sql))
+  │   ├─ APPEND: 새 컬럼 추가 / REPLACE: 기존 컬럼 덮어쓰기
+  │   └─ 결과 DataFrame + IntermediateSpec 반환
+  └─ 표현식 체인: 이전 표현식 결과를 다음 표현식에서 참조 가능
+```
+
+---
+
+## 다이얼로그 기능
+
+### 탭 구성 (KNIME Expression 노드 스타일 split-pane)
+- **단일 탭 - Expression**: 좌측(Input Columns + Function Catalog) | 중앙(Expression 탭) | 하단(Output Preview)
+
+### 레이아웃
+```
+┌────────────┬──────────────────────────────────────────┐
+│            │  [Expr 1] [Expr 2] [+] [-]   (tabs)     │
+│  Input     │  ┌──────────────────────────────────────┐ │
+│  Columns   │  │   Expression Editor (large area)      │ │
+│            │  │   (monospace font)                    │ │
+│  ────────  │  ├──────────────────────────────────────┤ │
+│            │  │ Output: [APPEND ▼]  Column: [____]  │ │
+│  Function  │  └──────────────────────────────────────┘ │
+│  Catalog   │  ─── Output Preview ─────────────────── │
+│            │  [Evaluate] Preview first 5 rows         │
+│            │  ┌──────────────────────────────────────┐ │
+│            │  │ preview output                        │ │
+│            │  └──────────────────────────────────────┘ │
+└────────────┴──────────────────────────────────────────┘
+```
+
+### 좌측 패널
+- **Input Columns** (상단): 입력 테이블 컬럼 목록 (이름 + 타입). 더블클릭으로 에디터에 삽입
+- **Function Catalog** (하단): Spark SQL 함수 카탈로그 (String, Math, Date/Time, Null, Type Cast, Conditional). 더블클릭으로 템플릿 삽입
+- 컬럼명에 공백/특수문자 포함 시 자동 백틱 래핑
+
+### 중앙 패널 (Expression Tabs)
+- JTabbedPane: 각 탭이 하나의 표현식
+- `+` 버튼: 새 표현식 탭 추가 / `-` 버튼: 현재 탭 삭제 (최소 1개 유지)
+- 각 탭: 큰 JTextArea 에디터 (모노스페이스) + Output Mode 콤보 (APPEND/REPLACE) + Column Name 필드
+- 표현식 순차 적용: 이전 표현식 결과를 다음 표현식에서 참조 가능
+
+### Evaluate (Output Preview)
+- Evaluate 버튼 → SwingWorker로 validate-only Spark Job 실행
+- 성공 시 초록색 + 샘플 데이터 5행 표시
+- 실패 시 빨간색 + 어떤 표현식이 실패했는지 표시 ("Expression N error: ...")
+- upstream 노드 미실행 시 안내 메시지
+- 유효성 검증 실패 시 해당 탭으로 자동 전환
+
+### 표현식 예시
+- `UPPER(name)` — 대문자 변환
+- `col1 + col2` — 산술 연산
+- `CAST(age AS STRING)` — 타입 캐스팅
+- `COALESCE(col1, 'default')` — null 처리
+- `REGEXP_REPLACE(text, 'pattern', 'replacement')` — 정규식
+- `CONCAT(first, ' ', last)` — 문자열 결합
+- `CASE WHEN age > 18 THEN 'adult' ELSE 'minor' END` — 조건식
+- `TO_DATE(date_str, 'yyyy-MM-dd')` — 날짜 파싱

@@ -1,0 +1,93 @@
+<?xml version="1.0" encoding="utf-8"?>
+<knimeNode xmlns="http://knime.org/node/v3.1" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+    xsi:schemaLocation="http://knime.org/node/v3.1 http://knime.org/node/v3.1.xsd"
+    icon="icon.png" type="Manipulator">
+    <name>Spark Expression (Hyim)</name>
+    <shortDescription>
+        Applies multiple Spark SQL expressions to transform or add columns in a Spark DataFrame.
+    </shortDescription>
+    <fullDescription>
+        <intro>
+            <p>
+                This node applies one or more Spark SQL expressions to transform or add columns
+                in a Spark DataFrame. Each expression row specifies:
+            </p>
+            <ul>
+                <li><b>Expression</b>: A Spark SQL expression (e.g., <tt>UPPER(col1)</tt>,
+                    <tt>col1 + col2</tt>, <tt>CAST(col1 AS INT)</tt>)</li>
+                <li><b>Output Mode</b>: Whether to <b>APPEND</b> a new column or <b>REPLACE</b>
+                    an existing one</li>
+                <li><b>Output Column Name</b>: The name of the output column</li>
+            </ul>
+            <p>
+                Expressions are applied sequentially using Spark's <tt>withColumn()</tt> API,
+                so later expressions can reference columns created by earlier expressions.
+            </p>
+            <p><b>Expression examples:</b></p>
+            <ul>
+                <li><tt>UPPER(name)</tt> — convert to uppercase</li>
+                <li><tt>col1 + col2</tt> — arithmetic operation</li>
+                <li><tt>CAST(age AS STRING)</tt> — type casting</li>
+                <li><tt>COALESCE(col1, 'default')</tt> — null handling</li>
+                <li><tt>REGEXP_REPLACE(text, 'pattern', 'replacement')</tt> — regex</li>
+                <li><tt>CONCAT(first_name, ' ', last_name)</tt> — string concatenation</li>
+                <li><tt>CASE WHEN age &gt; 18 THEN 'adult' ELSE 'minor' END</tt> — conditional</li>
+                <li><tt>SUBSTRING(col1, 1, 5)</tt> — substring extraction</li>
+                <li><tt>TO_DATE(date_str, 'yyyy-MM-dd')</tt> — date parsing</li>
+                <li><tt>ROUND(price * 1.1, 2)</tt> — arithmetic with rounding</li>
+            </ul>
+            <p>
+                Use backticks for column names that contain spaces or special characters:
+                <tt>`my column`</tt>
+            </p>
+        </intro>
+        <tab name="Expression">
+            <option name="Input Columns">
+                Left panel (top): Lists all columns from the input Spark DataFrame with
+                their data types. Double-click a column name to insert it into the
+                currently active expression editor. Column names with spaces or special
+                characters are automatically wrapped in backticks.
+            </option>
+            <option name="Function Catalog">
+                Left panel (bottom): A categorized list of common Spark SQL functions
+                (String, Math, Date/Time, Null Handling, Type Cast, Conditional).
+                Double-click a function to insert its template into the active expression editor.
+            </option>
+            <option name="Expression Tabs">
+                Center area: Each tab represents one expression transformation. Use the
+                <b>+</b> button to add a new expression and <b>-</b> to remove the
+                current one. Expressions are applied sequentially, so later expressions
+                can reference columns created by earlier ones.
+            </option>
+            <option name="Expression Editor">
+                The main text area in each tab where you write a Spark SQL expression
+                (e.g., <tt>UPPER(col1)</tt>, <tt>col1 + col2</tt>). All standard
+                Spark SQL functions are supported. Reference column names directly.
+            </option>
+            <option name="Output Mode">
+                <b>APPEND</b>: Creates a new column with the specified name.
+                The column name must not already exist in the input.
+                <b>REPLACE</b>: Replaces an existing column with the expression result.
+                The column name must exist in the input.
+            </option>
+            <option name="Output Column Name">
+                The name of the output column. For APPEND mode, this must be a new name.
+                For REPLACE mode, this must match an existing column name.
+            </option>
+            <option name="Output Preview / Evaluate">
+                Bottom area: Click <b>Evaluate</b> to validate all expressions by
+                running them on the Spark cluster (LIMIT 5 rows). Shows a formatted
+                preview of the result on success, or an error message on failure.
+                The upstream node must be executed for evaluation to work.
+            </option>
+        </tab>
+    </fullDescription>
+    <ports>
+        <inPort index="0" name="Spark DataFrame/RDD">
+            Spark DataFrame/RDD to transform.
+        </inPort>
+        <outPort index="0" name="Spark DataFrame/RDD">
+            Spark DataFrame/RDD with expressions applied.
+        </outPort>
+    </ports>
+</knimeNode>
