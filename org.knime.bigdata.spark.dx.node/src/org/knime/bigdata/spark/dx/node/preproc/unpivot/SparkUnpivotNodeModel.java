@@ -79,15 +79,6 @@ public class SparkUnpivotNodeModel extends SparkNodeModel {
             }
         }
 
-        // Validate no overlap between retained and value columns
-        final Set<String> overlap = new HashSet<>(retainedColumns);
-        overlap.retainAll(valueColumns);
-        if (!overlap.isEmpty()) {
-            throw new InvalidSettingsException("The following columns are selected as both "
-                + "retained and value columns: " + overlap
-                + ". A column cannot be in both lists.");
-        }
-
         // Validate output column names
         if (m_settings.getVariableColName() == null || m_settings.getVariableColName().trim().isEmpty()) {
             throw new InvalidSettingsException("Variable column name must not be empty.");

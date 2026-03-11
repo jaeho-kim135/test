@@ -1,6 +1,7 @@
 package org.knime.bigdata.spark.dx.node.preproc.unpivot;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
@@ -26,6 +27,7 @@ import javax.swing.JPanel;
 import javax.swing.JScrollPane;
 import javax.swing.JTable;
 import javax.swing.JTextArea;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.table.DefaultTableModel;
 
@@ -64,9 +66,9 @@ public final class SparkUnpivotNodeDialog extends DataAwareNodeDialogPane {
 
     // --- Settings models ---
     private final SettingsModelFilterString m_retainedColumns =
-        new SettingsModelFilterString(SparkUnpivotSettings.CFG_RETAINED_COLUMNS);
+        new SettingsModelFilterString(SparkUnpivotSettings.CFG_RETAINED_COLUMNS, new String[0], new String[0], false);
     private final SettingsModelFilterString m_valueColumns =
-        new SettingsModelFilterString(SparkUnpivotSettings.CFG_VALUE_COLUMNS);
+        new SettingsModelFilterString(SparkUnpivotSettings.CFG_VALUE_COLUMNS, new String[0], new String[0], false);
     private final SettingsModelString m_variableColName =
         new SettingsModelString(SparkUnpivotSettings.CFG_VARIABLE_COL_NAME, "variable");
     private final SettingsModelString m_valueColName =
@@ -109,16 +111,20 @@ public final class SparkUnpivotNodeDialog extends DataAwareNodeDialogPane {
     private String m_dataFrameID;
     private DataTableSpec m_tableSpec;
     private long m_inputRowCount = -1;
+    /**
+     * True once the user has successfully clicked OK in this dialog session.
+     * Used in addition to CFG_CONFIGURED (which is persisted in NodeModel settings)
+     * to prevent incorrectly using the fresh branch after OK was clicked this session.
+     */
+    private boolean m_everSavedWithOk = false;
 
     /** Constructor. */
     public SparkUnpivotNodeDialog() {
         m_retainedColFilter.setIncludeTitle(" Retained column(s) ");
         m_retainedColFilter.setExcludeTitle(" Available column(s) ");
-        m_retainedColFilter.setShowInvalidIncludeColumns(true);
 
         m_valueColFilter.setIncludeTitle(" Value column(s) ");
         m_valueColFilter.setExcludeTitle(" Available column(s) ");
-        m_valueColFilter.setShowInvalidIncludeColumns(true);
 
         // Listen for column/option changes → update row estimate + variable map table
         m_retainedColumns.addChangeListener(e -> updateRowEstimate());
@@ -327,8 +333,29 @@ public final class SparkUnpivotNodeDialog extends DataAwareNodeDialogPane {
     private void loadCommonSettings(final NodeSettingsRO settings, final DataTableSpec tableSpec)
             throws NotConfigurableException {
         final DataTableSpec[] tableSpecs = new DataTableSpec[]{tableSpec};
-        m_retainedColFilter.loadSettingsFrom(settings, tableSpecs);
-        m_valueColFilter.loadSettingsFrom(settings, tableSpecs);
+        // Use non-fresh branch if:
+        //   (a) user has clicked OK this session (m_everSavedWithOk), OR
+        //   (b) the settings have CFG_CONFIGURED persisted from a previous session.
+        // Otherwise treat as a fresh node and put all columns in Available.
+        if (m_everSavedWithOk || settings.containsKey(SparkUnpivotSettings.CFG_CONFIGURED)) {
+            m_retainedColFilter.loadSettingsFrom(settings, tableSpecs);
+            m_valueColFilter.loadSettingsFrom(settings, tableSpecs);
+        } else {
+            // Fresh/unconfigured node: put all columns in the Available (exclude) side
+            if (tableSpec != null && tableSpec.getNumColumns() > 0) {
+                final String[] allCols = tableSpec.getColumnNames();
+                final NodeSettings freshSettings = new NodeSettings("defaults");
+                new SettingsModelFilterString(SparkUnpivotSettings.CFG_RETAINED_COLUMNS,
+                    new String[0], allCols, false).saveSettingsTo(freshSettings);
+                new SettingsModelFilterString(SparkUnpivotSettings.CFG_VALUE_COLUMNS,
+                    new String[0], allCols, false).saveSettingsTo(freshSettings);
+                m_retainedColFilter.loadSettingsFrom(freshSettings, tableSpecs);
+                m_valueColFilter.loadSettingsFrom(freshSettings, tableSpecs);
+            } else {
+                m_retainedColFilter.loadSettingsFrom(settings, tableSpecs);
+                m_valueColFilter.loadSettingsFrom(settings, tableSpecs);
+            }
+        }
 
         try { m_variableColName.loadSettingsFrom(settings); }
         catch (final InvalidSettingsException e) { /* default */ }
@@ -378,6 +405,20 @@ public final class SparkUnpivotNodeDialog extends DataAwareNodeDialogPane {
         installTypeRenderers(m_retainedColFilter.getComponentPanel());
         installTypeRenderers(m_valueColFilter.getComponentPanel());
         updateRowEstimate();
+        // Defer layout recalculation until after the dialog is fully shown.
+        // Synchronous revalidate() fires before the dialog window is visible,
+        // so the JScrollPanes inside ColumnFilterPanel still have zero size.
+        // invokeLater ensures this runs after the dialog becomes visible.
+        // ColumnFilterPanel.update() repopulates the table models but does NOT call
+        // updateFilterView(), so the CardLayout can remain stuck on the PLACEHOLDER card
+        // (shown when Available was empty after "Add All"). Fix it immediately after load,
+        // and also defer once in case the dialog is not yet visible.
+        fixCardLayouts(m_retainedColFilter.getComponentPanel());
+        fixCardLayouts(m_valueColFilter.getComponentPanel());
+        SwingUtilities.invokeLater(() -> {
+            fixCardLayouts(m_retainedColFilter.getComponentPanel());
+            fixCardLayouts(m_valueColFilter.getComponentPanel());
+        });
     }
 
     /**
@@ -459,6 +500,10 @@ public final class SparkUnpivotNodeDialog extends DataAwareNodeDialogPane {
             varMap.keySet().toArray(new String[0]));
         settings.addStringArray(SparkUnpivotSettings.CFG_VARIABLE_VALUE_MAP + "_values",
             varMap.values().toArray(new String[0]));
+        // Mark node as configured so NodeModel.saveSettingsTo() also persists this flag
+        settings.addBoolean(SparkUnpivotSettings.CFG_CONFIGURED, true);
+        // Track in-session: OK was clicked successfully this dialog lifecycle
+        m_everSavedWithOk = true;
     }
 
     private void validateSettings() throws InvalidSettingsException {
@@ -470,12 +515,6 @@ public final class SparkUnpivotNodeDialog extends DataAwareNodeDialogPane {
         }
         if (valueCols == null || valueCols.isEmpty()) {
             throw new InvalidSettingsException("No value columns selected.");
-        }
-
-        final Set<String> overlap = new HashSet<>(retainedCols);
-        overlap.retainAll(valueCols);
-        if (!overlap.isEmpty()) {
-            throw new InvalidSettingsException("Columns in both retained and value: " + overlap);
         }
 
         final String varName = m_variableColName.getStringValue();
@@ -639,6 +678,43 @@ public final class SparkUnpivotNodeDialog extends DataAwareNodeDialogPane {
         m_validationArea.setForeground(COLOR_ERROR);
         m_validationArea.setText(message);
         m_validationArea.setCaretPosition(0);
+    }
+
+    // =================================================================
+    // Layout helpers
+    // =================================================================
+
+    /**
+     * Fixes the CardLayout panels inside DialogComponentColumnFilter.
+     * Root cause: ColumnFilterPanel.update() (called from loadSettingsFrom) repopulates
+     * the exclude/include table models but does NOT call updateFilterView(). When the user
+     * moves all columns to Include ("Add All"), updateFilterView() switches the Available
+     * (exclude) CardLayout to PLACEHOLDER. After cancel + reopen, update() restores the
+     * columns to the exclude model but the CardLayout stays on PLACEHOLDER → columns exist
+     * in the model but are invisible.
+     * Fix: switch any CardLayout panel to "LIST" when its JScrollPane child's JTable
+     * has rows, without touching panels whose tables are empty (PLACEHOLDER is correct there).
+     */
+    private void fixCardLayouts(final Container container) {
+        for (final Component comp : container.getComponents()) {
+            if (comp instanceof JPanel) {
+                final JPanel panel = (JPanel) comp;
+                if (panel.getLayout() instanceof CardLayout) {
+                    for (final Component child : panel.getComponents()) {
+                        if (child instanceof JScrollPane) {
+                            final Component view = ((JScrollPane) child).getViewport().getView();
+                            if (view instanceof JTable && ((JTable) view).getModel().getRowCount() > 0) {
+                                ((CardLayout) panel.getLayout()).show(panel, "LIST");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (comp instanceof Container) {
+                fixCardLayouts((Container) comp);
+            }
+        }
     }
 
     // =================================================================

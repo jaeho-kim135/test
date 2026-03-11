@@ -1,6 +1,7 @@
 package org.knime.bigdata.spark.dx.node.sql.multiquery;
 
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
 import java.awt.Color;
 import java.awt.Component;
 import java.awt.Container;
@@ -21,8 +22,10 @@ import javax.swing.JLabel;
 import javax.swing.JList;
 import javax.swing.JPanel;
 import javax.swing.JScrollPane;
+import javax.swing.JTable;
 import javax.swing.JTextArea;
 import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
@@ -74,7 +77,7 @@ public final class SparkMultiQueryNodeDialog extends DataAwareNodeDialogPane {
 
     // --- Settings models ---
     private final SettingsModelFilterString m_targetColumns =
-        new SettingsModelFilterString(SparkMultiQuerySettings.CFG_TARGET_COLUMNS);
+        new SettingsModelFilterString(SparkMultiQuerySettings.CFG_TARGET_COLUMNS, new String[0], new String[0], false);
     private final SettingsModelString m_sqlExpression =
         new SettingsModelString(SparkMultiQuerySettings.CFG_SQL_EXPRESSION, "string(" + PH + ")");
 
@@ -95,12 +98,17 @@ public final class SparkMultiQueryNodeDialog extends DataAwareNodeDialogPane {
     private String m_dataFrameID;
     private DataTableSpec m_tableSpec;
     private boolean m_suppressTemplateUpdate = false;
+    /**
+     * True once the user has successfully clicked OK in this dialog session.
+     * Used in addition to CFG_CONFIGURED (which is persisted in NodeModel settings)
+     * to prevent incorrectly using the fresh branch after OK was clicked this session.
+     */
+    private boolean m_everSavedWithOk = false;
 
     /** Constructor. */
     public SparkMultiQueryNodeDialog() {
         m_targetColFilter.setIncludeTitle(" Target column(s) ");
         m_targetColFilter.setExcludeTitle(" Available column(s) ");
-        m_targetColFilter.setShowInvalidIncludeColumns(true);
 
         // Listen for column selection changes → update preview + column summary
         m_targetColumns.addChangeListener(e -> {
@@ -399,7 +407,24 @@ public final class SparkMultiQueryNodeDialog extends DataAwareNodeDialogPane {
     private void loadCommonSettings(final NodeSettingsRO settings, final DataTableSpec tableSpec)
             throws NotConfigurableException {
 
-        m_targetColFilter.loadSettingsFrom(settings, new DataTableSpec[]{tableSpec});
+        // Use non-fresh branch if:
+        //   (a) user has clicked OK this session (m_everSavedWithOk), OR
+        //   (b) the settings have CFG_CONFIGURED persisted from a previous session.
+        // Otherwise treat as a fresh node and put all columns in Available.
+        if (m_everSavedWithOk || settings.containsKey(SparkMultiQuerySettings.CFG_CONFIGURED)) {
+            m_targetColFilter.loadSettingsFrom(settings, new DataTableSpec[]{tableSpec});
+        } else {
+            // Fresh/unconfigured node: put all columns in the Available (exclude) side
+            if (tableSpec != null && tableSpec.getNumColumns() > 0) {
+                final String[] allCols = tableSpec.getColumnNames();
+                final NodeSettings freshSettings = new NodeSettings("defaults");
+                new SettingsModelFilterString(SparkMultiQuerySettings.CFG_TARGET_COLUMNS,
+                    new String[0], allCols, false).saveSettingsTo(freshSettings);
+                m_targetColFilter.loadSettingsFrom(freshSettings, new DataTableSpec[]{tableSpec});
+            } else {
+                m_targetColFilter.loadSettingsFrom(settings, new DataTableSpec[]{tableSpec});
+            }
+        }
 
         try {
             m_sqlExpression.loadSettingsFrom(settings);
@@ -426,6 +451,12 @@ public final class SparkMultiQueryNodeDialog extends DataAwareNodeDialogPane {
 
         m_validationArea.setText(" ");
         installTypeRenderers(m_targetColFilter.getComponentPanel());
+        // ColumnFilterPanel.update() repopulates the table models but does NOT call
+        // updateFilterView(), so the CardLayout can remain stuck on the PLACEHOLDER card
+        // (shown when Available was empty after "Add All"). Fix it immediately after load,
+        // and also defer once in case the dialog is not yet visible.
+        fixCardLayouts(m_targetColFilter.getComponentPanel());
+        SwingUtilities.invokeLater(() -> fixCardLayouts(m_targetColFilter.getComponentPanel()));
         updateSelectedColumnsInfo();
         updatePreview();
     }
@@ -441,6 +472,10 @@ public final class SparkMultiQueryNodeDialog extends DataAwareNodeDialogPane {
 
         settings.addBoolean(SparkMultiQuerySettings.CFG_KEEP_ORIGINAL, m_keepOriginalCheck.isSelected());
         settings.addString(SparkMultiQuerySettings.CFG_OUTPUT_PATTERN, m_outputPatternField.getText().trim());
+        // Mark node as configured so NodeModel.saveSettingsTo() also persists this flag
+        settings.addBoolean(SparkMultiQuerySettings.CFG_CONFIGURED, true);
+        // Track in-session: OK was clicked successfully this dialog lifecycle
+        m_everSavedWithOk = true;
     }
 
     private void validateSettings() throws InvalidSettingsException {
@@ -601,6 +636,43 @@ public final class SparkMultiQueryNodeDialog extends DataAwareNodeDialogPane {
         m_validationArea.setForeground(COLOR_ERROR);
         m_validationArea.setText(message);
         m_validationArea.setCaretPosition(0);
+    }
+
+    // =================================================================
+    // Layout helpers
+    // =================================================================
+
+    /**
+     * Fixes the CardLayout panels inside DialogComponentColumnFilter.
+     * Root cause: ColumnFilterPanel.update() (called from loadSettingsFrom) repopulates
+     * the exclude/include table models but does NOT call updateFilterView(). When the user
+     * moves all columns to Include ("Add All"), updateFilterView() switches the Available
+     * (exclude) CardLayout to PLACEHOLDER. After cancel + reopen, update() restores the
+     * columns to the exclude model but the CardLayout stays on PLACEHOLDER → columns exist
+     * in the model but are invisible.
+     * Fix: switch any CardLayout panel to "LIST" when its JScrollPane child's JTable
+     * has rows, without touching panels whose tables are empty (PLACEHOLDER is correct there).
+     */
+    private void fixCardLayouts(final Container container) {
+        for (final Component comp : container.getComponents()) {
+            if (comp instanceof JPanel) {
+                final JPanel panel = (JPanel) comp;
+                if (panel.getLayout() instanceof CardLayout) {
+                    for (final Component child : panel.getComponents()) {
+                        if (child instanceof JScrollPane) {
+                            final Component view = ((JScrollPane) child).getViewport().getView();
+                            if (view instanceof JTable && ((JTable) view).getModel().getRowCount() > 0) {
+                                ((CardLayout) panel.getLayout()).show(panel, "LIST");
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+            if (comp instanceof Container) {
+                fixCardLayouts((Container) comp);
+            }
+        }
     }
 
     // =================================================================
