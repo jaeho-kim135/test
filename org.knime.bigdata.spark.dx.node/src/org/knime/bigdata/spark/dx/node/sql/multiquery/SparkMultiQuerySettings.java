@@ -19,10 +19,9 @@ public final class SparkMultiQuerySettings {
     static final String CFG_SQL_EXPRESSION = "sqlExpression";
     static final String CFG_KEEP_ORIGINAL = "keepOriginalColumns";
     static final String CFG_OUTPUT_PATTERN = "outputColumnPattern";
-    static final String CFG_CONFIGURED = "nodeConfigured";
 
     private final SettingsModelFilterString m_targetColumns =
-        new SettingsModelFilterString(CFG_TARGET_COLUMNS, new String[0], new String[0], false);
+        new SettingsModelFilterString(CFG_TARGET_COLUMNS);
 
     private final SettingsModelString m_sqlExpression =
         new SettingsModelString(CFG_SQL_EXPRESSION, "string(" + COLUMN_PLACEHOLDER + ")");
@@ -32,19 +31,6 @@ public final class SparkMultiQuerySettings {
 
     private final SettingsModelString m_outputPattern =
         new SettingsModelString(CFG_OUTPUT_PATTERN, COLUMN_PLACEHOLDER);
-
-    /** True once the user has accepted the dialog settings with OK at least once. */
-    private boolean m_nodeConfigured = false;
-
-    /** @return true if the node has been configured (user clicked OK at least once) */
-    public boolean isNodeConfigured() {
-        return m_nodeConfigured;
-    }
-
-    /** @param configured set to true when user accepts the dialog */
-    public void setNodeConfigured(final boolean configured) {
-        m_nodeConfigured = configured;
-    }
 
     /** @return the target columns filter model */
     public SettingsModelFilterString getTargetColumnsModel() {
@@ -95,10 +81,6 @@ public final class SparkMultiQuerySettings {
         m_sqlExpression.saveSettingsTo(settings);
         m_keepOriginal.saveSettingsTo(settings);
         m_outputPattern.saveSettingsTo(settings);
-        // Only written once the user has accepted the dialog with OK; omitted for fresh nodes
-        if (m_nodeConfigured) {
-            settings.addBoolean(CFG_CONFIGURED, true);
-        }
     }
 
     /**
@@ -131,6 +113,5 @@ public final class SparkMultiQuerySettings {
         if (settings.containsKey(CFG_OUTPUT_PATTERN)) {
             m_outputPattern.loadSettingsFrom(settings);
         }
-        m_nodeConfigured = settings.containsKey(CFG_CONFIGURED);
     }
 }
