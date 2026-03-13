@@ -2,7 +2,10 @@ package org.knime.bigdata.spark.dx.node.sql.expression;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import org.knime.bigdata.spark.core.context.SparkContextID;
 import org.knime.bigdata.spark.core.context.SparkContextUtil;
@@ -21,6 +24,10 @@ import org.knime.core.node.NodeSettingsWO;
 import org.knime.core.node.port.PortObject;
 import org.knime.core.node.port.PortObjectSpec;
 import org.knime.core.node.port.PortType;
+import org.knime.core.node.workflow.FlowVariable;
+import org.knime.core.node.workflow.NativeNodeContainer;
+import org.knime.core.node.workflow.NodeContainer;
+import org.knime.core.node.workflow.NodeContext;
 
 /**
  * Node model for the Spark Expression node.
@@ -30,6 +37,9 @@ public class SparkExpressionNodeModel extends SparkNodeModel {
 
     /** The unique Spark job id. */
     public static final String JOB_ID = SparkExpressionNodeModel.class.getCanonicalName();
+
+    /** Pattern for flow variable placeholders: $${varName} */
+    private static final Pattern FLOW_VAR_PATTERN = Pattern.compile("\\$\\$\\{([^}]+)\\}");
 
     private final SparkExpressionSettings m_settings = new SparkExpressionSettings();
 
@@ -70,13 +80,16 @@ public class SparkExpressionNodeModel extends SparkNodeModel {
         final List<OutputMode> modes = m_settings.getOutputModes();
         final List<String> columnNames = m_settings.getColumnNames();
 
+        // Resolve $${varName} flow variable placeholders
+        final String[] resolvedExprs = resolveFlowVariables(expressions);
+
         final String[] modesStr = modes.stream()
             .map(OutputMode::name)
             .toArray(String[]::new);
 
         final SparkExpressionJobInput jobInput = new SparkExpressionJobInput(
             inputObject, outputObject,
-            expressions.toArray(new String[0]),
+            resolvedExprs,
             modesStr,
             columnNames.toArray(new String[0]));
 
@@ -156,6 +169,58 @@ public class SparkExpressionNodeModel extends SparkNodeModel {
                 currentColumns.add(colName);
             }
         }
+    }
+
+    /**
+     * Resolves {@code $${varName}} placeholders in expressions with actual flow variable values.
+     * String variables are SQL-quoted, numeric types are inserted as literals.
+     */
+    @SuppressWarnings("deprecation")
+    private String[] resolveFlowVariables(final List<String> expressions) {
+        Map<String, FlowVariable> flowVars = Map.of();
+        try {
+            final NodeContainer nc = NodeContext.getContext().getNodeContainer();
+            if (nc instanceof NativeNodeContainer) {
+                final var stack = ((NativeNodeContainer) nc).getFlowObjectStack();
+                if (stack != null) {
+                    flowVars = stack.getAvailableFlowVariables(FlowVariable.Type.values());
+                }
+            }
+        } catch (final Exception e) {
+            // Fall through with empty map — flow variable placeholders will remain unresolved
+        }
+
+        final String[] result = new String[expressions.size()];
+        for (int i = 0; i < expressions.size(); i++) {
+            String expr = expressions.get(i);
+            final Matcher matcher = FLOW_VAR_PATTERN.matcher(expr);
+            final StringBuilder sb = new StringBuilder();
+            while (matcher.find()) {
+                final String varName = matcher.group(1);
+                final FlowVariable fv = flowVars.get(varName);
+                if (fv != null) {
+                    final String replacement;
+                    switch (fv.getType()) {
+                        case INTEGER:
+                            replacement = String.valueOf(fv.getIntValue());
+                            break;
+                        case DOUBLE:
+                            replacement = String.valueOf(fv.getDoubleValue());
+                            break;
+                        case STRING:
+                            replacement = "'" + fv.getStringValue().replace("'", "''") + "'";
+                            break;
+                        default:
+                            replacement = "'" + fv.getValueAsString().replace("'", "''") + "'";
+                            break;
+                    }
+                    matcher.appendReplacement(sb, Matcher.quoteReplacement(replacement));
+                }
+            }
+            matcher.appendTail(sb);
+            result[i] = sb.toString();
+        }
+        return result;
     }
 
     @Override

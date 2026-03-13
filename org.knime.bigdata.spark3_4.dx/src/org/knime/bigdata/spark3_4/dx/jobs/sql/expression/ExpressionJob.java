@@ -3,7 +3,6 @@ package org.knime.bigdata.spark3_4.dx.jobs.sql.expression;
 import org.apache.spark.SparkContext;
 import org.apache.spark.sql.Dataset;
 import org.apache.spark.sql.Row;
-import org.apache.spark.sql.SparkSession;
 import org.knime.bigdata.spark.core.exception.KNIMESparkException;
 import org.knime.bigdata.spark.core.job.SparkClass;
 import org.knime.bigdata.spark.core.types.intermediate.IntermediateSpec;
@@ -28,7 +27,6 @@ public class ExpressionJob implements SparkJob<SparkExpressionJobInput, SparkExp
     public SparkExpressionJobOutput runJob(final SparkContext sparkContext, final SparkExpressionJobInput input,
             final NamedObjects namedObjects) throws KNIMESparkException, Exception {
 
-        final SparkSession spark = SparkSession.builder().sparkContext(sparkContext).getOrCreate();
         final String namedInputObject = input.getFirstNamedInputObject();
         final Dataset<Row> inputFrame = namedObjects.getDataFrame(namedInputObject);
 
@@ -59,8 +57,8 @@ public class ExpressionJob implements SparkJob<SparkExpressionJobInput, SparkExp
             }
         }
 
-        // Run LIMIT 5 to validate and generate preview
-        final String preview = result.showString(5, 20, false);
+        // Generate preview with first 10 rows
+        final String preview = result.showString(10, 40, false);
         final SparkExpressionJobOutput output = new SparkExpressionJobOutput(null, null);
         output.setPreviewData(preview);
         return output;
